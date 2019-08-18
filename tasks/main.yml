@@ -1,5 +1,20 @@
 ---
+
+- name: "Add nginx conf file flask apps"
+  tags: flask
+  template:
+    src: "{{ item.template_name }}"
+    dest: "/etc/nginx/sites-enabled/{{ item.sub_domain }}.{{ item.main_domain }}.conf"
+    force: true
+    owner: root
+    group: root
+    mode: 0644
+  notify: reload nginx
+  with_items: "{{ websites }}"
+
+
 - name: "Install dependency apt packages"
+  tags: flask
   apt:
     pkg:
       - python3-pip
@@ -12,60 +27,92 @@
     state: present
 
 - name: Install websites from github.
+  become_user: "{{ websites_user }}"
+  tags: flask
   git:
-    repo: "https://github.com/thecodebasesite/{{ item }}.git"
-    dest: /opt/{{ item }}
+    repo: "{{ item.repo_https_base_url }}/{{ item.repo_name }}.git"
+    dest: "{{ websites_home_dir }}/{{ item.repo_name }}"
     version: master
     force: yes
     recursive: yes
-  with_items:
-    - thecodebase
+  with_items: "{{ websites }}"
   register: git_finished
 
 - name: Install virtualenv via pip
+  tags: flask
   pip:
     name: virtualenv
     executable: pip3
 
 - name: "Install website python requirements from requirements.txt"
+  tags: flask
+  become_user: "{{ websites_user }}"
   pip:
-    requirements: "/opt/thecodebase/requirements.txt"
+    requirements: "{{ websites_home_dir }}/{{ item.repo_name }}/requirements.txt"
     state: forcereinstall
-    virtualenv: "/opt/.venv/flask"
+    virtualenv: "{{ venv_path }}"
     virtualenv_python: /usr/bin/python3.6
+  when: git_finished.changed
+  with_items: "{{ websites }}"
+
+- name: Config file for flask websites
+  tags: flask
+  template:
+    src: "config.json"
+    dest: "{{ websites_home_dir }}/{{ item.repo_name }}/{{ item.repo_name }}/"
+    owner: "{{ websites_user }}"
+    group: "{{ websites_user }}"
+  with_items: "{{ websites }}"
 
 - name: Init database tables
+  tags: flask
   become_user: root
-  command: "/opt/.venv/flask/bin/python /opt/thecodebase/init_db.py {{ mysql_root_password }}"
+  become: yes
+  command: "{{ venv_path }}/bin/python {{ websites_home_dir }}/{{ item.repo_name }}/init_db.py {{ mysql_root_password }}"
   register: result
   changed_when:
     - '"CHANGED" in result.stdout'
+  with_items: "{{ websites }}"
 
 
-
-
-- name: Create logging directory for uwsgi
+- name: Create logging directory for flask applications and uwsgi
+  tags: flask
+  become_user: "{{ websites_user }}"
   file:
-    path: "/var/log/uwsgi/"
+    path: "{{ websites_home_dir }}/log"
     state: directory
 
+- name: "Add uwsgi.ini conf file flask apps"
+  tags: flask
+  template:
+    src: uwsgi.ini
+    dest: "{{ websites_home_dir }}/{{ item.repo_name }}.ini"
+    force: true
+    owner: "{{ websites_user }}"
+    group: "{{ websites_user }}"
+    mode: 0644
+  with_items: "{{ websites }}"
+
 - name: Creating a systemd Unit File for uWSGI
+  tags: flask
   template:
     src: "flask-website.service"
-    dest: "/etc/systemd/system/{{ item }}.service"
+    dest: "/etc/systemd/system/{{ item.repo_name }}.service"
     owner: root
     group: root
     mode: 0644
-  with_items:
-    - thecodebase
-    - myhomepages
+  with_items: "{{ websites }}"
 
+- name: Run daemon-reload before doing any other operations
+  tags: flask
+  systemd:
+    daemon_reload: yes
 
 - name: Enable uWSGI service
+  tags: flask
   service:
-    name: "{{ item }}"
+    name: "{{ item.repo_name }}"
     enabled: yes
     state: restarted
-  with_items:
-    - thecodebase
-    - myhomepages
+  with_items: "{{ websites }}"
+

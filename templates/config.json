@@ -1,0 +1,9 @@
+{
+    "mysql": {
+        "user": "{{ websites_user }}",
+        "db": "{{ item.repo_name }}",
+        "passwd": "{{ mysql_root_password }}"
+    },
+    "secret_key": "{{ website_secret_key }}",
+    "log_file": "{{ websites_home_dir }}/log/{{ item.repo_name }}-flask.log"
+}
