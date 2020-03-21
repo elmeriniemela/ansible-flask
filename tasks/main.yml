@@ -49,7 +49,7 @@
   become_user: "{{ websites_user }}"
   pip:
     requirements: "{{ websites_home_dir }}/{{ item.repo_name }}/requirements.txt"
-    state: forcereinstall
+    state: present
     virtualenv: "{{ venv_path }}"
     virtualenv_python: /usr/bin/python3.6
   when: git_finished.changed
